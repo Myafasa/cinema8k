@@ -24,7 +24,7 @@ Password seed disimpan sebagai hash scrypt. Ganti akun dan password demo sebelum
 - [x] Tahap 1: schema, migrasi awal, role/RLS, partial unique index kursi, seed dua tenant
 - [x] Tahap 2: routing tenant, `withTenant`, autentikasi JWT dan otorisasi
 - [x] Tahap 3: onboarding tenant dan CRUD admin
-- [ ] Tahap 4: halaman publik dan peta kursi
+- [x] Tahap 4: halaman publik dan peta kursi
 - [ ] Tahap 5: booking, pembayaran simulasi, tiket QR, worker expiry
 - [ ] Tahap 6: kasir dan laporan
 - [ ] Tahap 7: deployment tiga node
@@ -40,4 +40,8 @@ Untuk demo lokal setelah database disiapkan dan di-seed, jalankan `npm run dev`,
 ## Admin tenant (tahap 3)
 
 Super admin dapat membuat tenant beserta akun admin awal, mengganti plan, dan menonaktifkan tenant dari `/super-admin` di domain utama. Admin tenant mengelola film, studio beserta ukuran layout, dan jadwal/harga di `/admin` pada subdomain masing-masing.
+
+## Jadwal publik dan peta kursi (tahap 4)
+
+Halaman tenant menampilkan jadwal mendatang dan harga. Detail jadwal memetakan kursi sesuai baris dan kolom studio; kursi `HELD` atau `SOLD` ditandai terisi. Status dipoll setiap lima detik dari route tenant dan responsnya tidak di-cache.
 
