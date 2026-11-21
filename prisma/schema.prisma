@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantPlan {
+  FREE
+  BASIC
+  PRO
+}
+
+enum UserRole {
+  TENANT_ADMIN
+  CASHIER
+  CUSTOMER
+}
+
+enum GlobalRole {
+  USER
+  SUPER_ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+enum SeatStatus {
+  HELD
+  SOLD
+  RELEASED
+}
+
+model Tenant {
+  id          String       @id @default(uuid()) @db.Uuid
+  nama        String
+  subdomain   String       @unique
+  plan        TenantPlan   @default(FREE)
+  aktif       Boolean      @default(true)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  memberships Membership[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  passwordHash String       @map("password_hash")
+  nama         String
+  globalRole   GlobalRole   @default(USER) @map("global_role")
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  memberships  Membership[]
+  bookings     Booking[]
+
+  @@map("users")
+}
+
+model Membership {
+  id       String   @id @default(uuid()) @db.Uuid
+  tenantId String   @map("tenant_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  role     UserRole
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+model Movie {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @map("tenant_id") @db.Uuid
+  judul       String
+  durasiMenit Int        @map("durasi_menit")
+  sinopsis    String
+  posterUrl   String?    @map("poster_url")
+  showtimes   Showtime[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("movies")
+}
+
+model Studio {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @map("tenant_id") @db.Uuid
+  nama        String
+  jumlahBaris Int        @map("jumlah_baris")
+  jumlahKolom Int        @map("jumlah_kolom")
+  showtimes   Showtime[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("studios")
+}
+
+model Showtime {
+  id       String        @id @default(uuid()) @db.Uuid
+  tenantId String        @map("tenant_id") @db.Uuid
+  movieId  String        @map("movie_id") @db.Uuid
+  studioId String        @map("studio_id") @db.Uuid
+  mulai    DateTime      @db.Timestamptz(6)
+  harga    Int
+  movie    Movie         @relation(fields: [tenantId, movieId], references: [tenantId, id], onDelete: Restrict)
+  studio   Studio        @relation(fields: [tenantId, studioId], references: [tenantId, id], onDelete: Restrict)
+  bookings Booking[]
+  seats    BookingSeat[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, mulai])
+  @@map("showtimes")
+}
+
+model Booking {
+  id         String        @id @default(uuid()) @db.Uuid
+  tenantId   String        @map("tenant_id") @db.Uuid
+  showtimeId String        @map("showtime_id") @db.Uuid
+  userId     String        @map("user_id") @db.Uuid
+  kode       String        @unique
+  status     BookingStatus @default(PENDING)
+  expiresAt  DateTime      @map("expires_at") @db.Timestamptz(6)
+  total      Int
+  dibuatPada DateTime      @default(now()) @map("dibuat_pada") @db.Timestamptz(6)
+  showtime   Showtime      @relation(fields: [tenantId, showtimeId], references: [tenantId, id], onDelete: Restrict)
+  user       User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  seats      BookingSeat[]
+  tickets    Ticket[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status, expiresAt])
+  @@map("bookings")
+}
+
+model BookingSeat {
+  id         String     @id @default(uuid()) @db.Uuid
+  tenantId   String     @map("tenant_id") @db.Uuid
+  bookingId  String     @map("booking_id") @db.Uuid
+  showtimeId String     @map("showtime_id") @db.Uuid
+  kodeKursi  String     @map("kode_kursi")
+  status     SeatStatus @default(HELD)
+  booking    Booking    @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  showtime   Showtime   @relation(fields: [tenantId, showtimeId], references: [tenantId, id], onDelete: Restrict)
+
+  @@index([tenantId, showtimeId])
+  @@map("booking_seats")
+}
+
+model Ticket {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  bookingId String    @map("booking_id") @db.Uuid
+  kode      String    @unique
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  booking   Booking   @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+
+  @@index([tenantId, bookingId])
+  @@map("tickets")
+}
