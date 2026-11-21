@@ -46,7 +46,7 @@ export default async function TenantAdminPage({ params, searchParams }: AdminPar
         <h1 className="text-3xl font-bold">Kelola katalog dan jadwal</h1>
         <p className="text-zinc-600">Semua data di halaman ini dibaca dalam konteks tenant yang sedang masuk.</p>
         {notice && <p className="rounded-lg bg-green-50 p-3 text-sm text-green-800">Perubahan tersimpan ({notice}).</p>}
-        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">Tidak dapat menyimpan perubahan ({error}). Periksa data atau relasi yang masih digunakan.</p>}
+        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">Tidak dapat menyimpan perubahan ({error}). Jadwal dan layout yang sudah punya booking terlindungi dari perubahan yang mengubah tiket.</p>}
       </header>
 
       <section id="movies" className="space-y-4">

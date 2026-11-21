@@ -3,10 +3,6 @@ import { tenantSlugFromHost } from "@/lib/tenant-host";
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  // Internal rewritten URLs are not public entry points.
-  if (pathname.startsWith("/%5Ftenant/") || pathname.startsWith("/_tenant/")) {
-    return new NextResponse(null, { status: 404 });
-  }
   if (
     pathname.startsWith("/_next/") ||
     pathname === "/favicon.ico" ||
@@ -16,11 +12,12 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const slug = tenantSlugFromHost(request.nextUrl.hostname);
+  const host = request.headers.get("host") ?? request.nextUrl.hostname;
+  const slug = tenantSlugFromHost(host);
   if (!slug) return NextResponse.next();
 
   const url = request.nextUrl.clone();
-  url.pathname = `/%5Ftenant/${slug}${pathname}`;
+  url.pathname = `/_tenant/${slug}${pathname}`;
   url.search = search;
   return NextResponse.rewrite(url);
 }

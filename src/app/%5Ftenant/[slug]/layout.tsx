@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { resolveTenant } from "@/lib/tenant";
 
 export default async function TenantLayout({
@@ -15,7 +16,7 @@ export default async function TenantLayout({
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-4">
-          <a className="font-semibold" href="/">{tenant.nama}</a>
+          <Link className="font-semibold" href="/">{tenant.nama}</Link>
           <nav className="flex gap-4 text-sm">
             <a href="/login">Masuk</a>
             <a href="/register">Daftar</a>

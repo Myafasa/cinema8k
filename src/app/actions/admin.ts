@@ -44,6 +44,8 @@ function isConstraintError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && ["P2002", "P2003", "P2014"].includes(error.code);
 }
 
+class AdminConflictError extends Error {}
+
 export async function saveMovieAction(formData: FormData) {
   const parsed = movieSchema.safeParse(values(formData));
   if (!parsed.success) redirect("/admin?error=invalid");
@@ -91,6 +93,16 @@ export async function saveStudioAction(formData: FormData) {
   try {
     await withTenant(tenant.id, async (tx) => {
       if (id) {
+        const current = await tx.studio.findFirst({ where: { id, tenantId: tenant.id } });
+        if (!current) return;
+        const layoutChanged = current.jumlahBaris !== jumlahBaris || current.jumlahKolom !== jumlahKolom;
+        if (layoutChanged) {
+          const hasBookings = await tx.showtime.findFirst({
+            where: { tenantId: tenant.id, studioId: id, bookings: { some: {} } },
+            select: { id: true },
+          });
+          if (hasBookings) throw new AdminConflictError("Layout already used by bookings");
+        }
         await tx.studio.updateMany({
           where: { id, tenantId: tenant.id },
           data: { nama, jumlahBaris, jumlahKolom },
@@ -100,6 +112,7 @@ export async function saveStudioAction(formData: FormData) {
       }
     });
   } catch (error) {
+    if (error instanceof AdminConflictError) redirectAdmin(slug, "error=layout-in-use");
     if (isConstraintError(error)) redirectAdmin(slug, "error=studio-in-use");
     throw error;
   }
@@ -136,6 +149,13 @@ export async function saveShowtimeAction(formData: FormData) {
       ]);
       if (!movie || !studio) throw new Error("Tenant relation not found");
       if (id) {
+        const current = await tx.showtime.findFirst({ where: { id, tenantId: tenant.id } });
+        if (!current) return;
+        const eventChanged = current.movieId !== movieId || current.studioId !== studioId || current.mulai.getTime() !== mulaiDate.getTime();
+        if (eventChanged) {
+          const hasBookings = await tx.booking.findFirst({ where: { tenantId: tenant.id, showtimeId: id }, select: { id: true } });
+          if (hasBookings) throw new AdminConflictError("Showtime already used by bookings");
+        }
         await tx.showtime.updateMany({
           where: { id, tenantId: tenant.id },
           data: { movieId, studioId, mulai: mulaiDate, harga },
@@ -145,6 +165,7 @@ export async function saveShowtimeAction(formData: FormData) {
       }
     });
   } catch (error) {
+    if (error instanceof AdminConflictError) redirectAdmin(slug, "error=showtime-in-use");
     if (isConstraintError(error)) redirectAdmin(slug, "error=showtime-in-use");
     throw error;
   }

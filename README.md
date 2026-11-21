@@ -25,7 +25,7 @@ Password seed disimpan sebagai hash scrypt. Ganti akun dan password demo sebelum
 - [x] Tahap 2: routing tenant, `withTenant`, autentikasi JWT dan otorisasi
 - [x] Tahap 3: onboarding tenant dan CRUD admin
 - [x] Tahap 4: halaman publik dan peta kursi
-- [ ] Tahap 5: booking, pembayaran simulasi, tiket QR, worker expiry
+- [x] Tahap 5: booking, pembayaran simulasi, tiket QR, worker expiry
 - [ ] Tahap 6: kasir dan laporan
 - [ ] Tahap 7: deployment tiga node
 
@@ -44,4 +44,12 @@ Super admin dapat membuat tenant beserta akun admin awal, mengganti plan, dan me
 ## Jadwal publik dan peta kursi (tahap 4)
 
 Halaman tenant menampilkan jadwal mendatang dan harga. Detail jadwal memetakan kursi sesuai baris dan kolom studio; kursi `HELD` atau `SOLD` ditandai terisi. Status dipoll setiap lima detik dari route tenant dan responsnya tidak di-cache.
+
+## Booking dan worker (tahap 5)
+
+Pilih kursi lalu tekan **Pesan kursi**. Aplikasi membuat booking `PENDING` dan baris `HELD` dalam satu transaksi, dengan batas 10 menit. Partial unique index di PostgreSQL menentukan pemenang bila dua proses merebut kursi yang sama. Pembayaran simulasi mengubah booking ke `PAID`, kursi ke `SOLD`, dan membuat satu tiket dalam transaksi yang sama. QR berisi kode tiket dan HMAC dari `TICKET_HMAC_SECRET`.
+
+Jalankan worker terpisah dengan `npm run worker`. Ia berjalan setiap menit, mengunci booking kedaluwarsa memakai `FOR UPDATE SKIP LOCKED`, lalu mengubah booking menjadi `EXPIRED` dan kursi menjadi `RELEASED` secara atomik. Beberapa worker boleh berjalan bersamaan.
+
+Sesudah database di-migrate dan di-seed, bukti isolasi dan transaksi dapat dijalankan dengan `npm run verify:rls`, `npm run verify:booking-race`, `npm run verify:booking-expiry`, dan `npm run verify:ticket-atomic`. Skrip race menjalankan 20 transaksi serentak pada kursi yang sama; tepat satu harus menang. Skrip tiket juga mensimulasikan 20 validasi paralel; hanya satu yang berhasil.
 
