@@ -208,17 +208,7 @@ export async function saveStaffAction(formData: FormData) {
   try {
     await withTenant(tenant.id, async (tx) => {
       const existingUser = await tx.user.findUnique({ where: { email: email.toLowerCase() } });
-      if (existingUser) {
-        const membership = await tx.membership.findUnique({
-          where: { tenantId_userId: { tenantId: tenant.id, userId: existingUser.id } },
-        });
-        if (!membership || !["TENANT_ADMIN", "CASHIER"].includes(membership.role)) {
-          throw new AdminConflictError("Email already used");
-        }
-        await tx.user.update({ where: { id: existingUser.id }, data: { nama } });
-        await tx.membership.update({ where: { id: membership.id }, data: { role } });
-        return;
-      }
+      if (existingUser) throw new AdminConflictError("Email already used");
 
       const user = await tx.user.create({
         data: { email: email.toLowerCase(), nama, passwordHash },
