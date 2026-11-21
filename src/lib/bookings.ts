@@ -15,7 +15,7 @@ export class BookingStateError extends Error {
   }
 }
 
-function seatIsInLayout(code: string, rows: number, columns: number) {
+export function seatIsInLayout(code: string, rows: number, columns: number) {
   const match = /^([A-Z]+)([1-9]\d*)$/.exec(code);
   if (!match) return false;
   let row = 0;
@@ -88,7 +88,7 @@ export async function payBooking(input: { tenantId: string; userId: string; book
         status: "PENDING",
         expiresAt: { gt: now },
       },
-      data: { status: "PAID" },
+      data: { status: "PAID", paidAt: now },
     });
 
     if (changed.count === 1) {

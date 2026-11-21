@@ -127,6 +127,7 @@ model Booking {
   kode       String        @unique
   status     BookingStatus @default(PENDING)
   expiresAt  DateTime      @map("expires_at") @db.Timestamptz(6)
+  paidAt     DateTime?     @map("paid_at") @db.Timestamptz(6)
   total      Int
   dibuatPada DateTime      @default(now()) @map("dibuat_pada") @db.Timestamptz(6)
   showtime   Showtime      @relation(fields: [tenantId, showtimeId], references: [tenantId, id], onDelete: Restrict)

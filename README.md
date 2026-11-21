@@ -1,55 +1,66 @@
 # Sistem Booking Tiket Bioskop
 
-MVP SaaS multi-tenant untuk pengelolaan jadwal dan pemesanan kursi bioskop. Setiap bioskop berbagi satu database PostgreSQL, dengan isolasi tenant melalui Row Level Security (RLS).
-
-## Fondasi database (tahap 1)
-
-Stack memakai Next.js App Router dengan output standalone, TypeScript, Prisma, dan PostgreSQL 16. Skema Prisma ada di `prisma/schema.prisma`; SQL RLS, role aplikasi, dan indeks kursi ada di `prisma/migrations`.
-
-1. Buat database PostgreSQL bernama `cinema`.
-2. Sebagai administrator PostgreSQL, jalankan `prisma/bootstrap-roles.sql` pada database tersebut. Tetapkan password kuat untuk `cinema_migrator` dan buat login runtime anggota `cinema_app`. Jangan beri login runtime hak superuser, `BYPASSRLS`, atau kepemilikan tabel.
-3. Salin `.env.example` ke `.env`, lalu atur `DATABASE_URL` untuk role runtime.
-4. Jalankan `npm install`, `npm run db:generate`, `npm run db:migrate`, lalu `npm run db:seed`.
-
-Seed membuat dua tenant contoh: `aurora` dan `bintang`. Semua akun demo menggunakan password `Cinema123!`:
-
-- Super admin: `superadmin@bioskop.test`
-- Tenant Aurora: `admin@aurora.test`, `kasir@aurora.test`, `customer@aurora.test`
-- Tenant Bintang: `admin@bintang.test`, `kasir@bintang.test`, `customer@bintang.test`
-
-Password seed disimpan sebagai hash scrypt. Ganti akun dan password demo sebelum dipakai di lingkungan selain lokal.
+MVP SaaS multi-tenant untuk bioskop. Aplikasi Next.js App Router memakai satu database PostgreSQL 16 dan satu schema. Data tenant dibatasi RLS dan akses tenant melewati `withTenant`, yang menetapkan konteks tenant di transaksi PostgreSQL.
 
 ## Status implementasi
 
-- [x] Tahap 1: schema, migrasi awal, role/RLS, partial unique index kursi, seed dua tenant
+- [x] Tahap 1: schema, migrasi, role/RLS, partial unique index kursi, seed dua tenant
 - [x] Tahap 2: routing tenant, `withTenant`, autentikasi JWT dan otorisasi
-- [x] Tahap 3: onboarding tenant dan CRUD admin
-- [x] Tahap 4: halaman publik dan peta kursi
-- [x] Tahap 5: booking, pembayaran simulasi, tiket QR, worker expiry
-- [ ] Tahap 6: kasir dan laporan
-- [ ] Tahap 7: deployment tiga node
+- [x] Tahap 3: onboarding tenant dan CRUD film, studio, jadwal, serta staf
+- [x] Tahap 4: halaman publik dan peta kursi dengan polling lima detik
+- [x] Tahap 5: booking, pembayaran simulasi, tiket QR bertanda tangan, worker expiry
+- [x] Tahap 6: kasir, penjualan loket, validasi tiket, dan laporan
+- [ ] Tahap 7: Docker standalone, compose tiga node, Caddy, backup, dan panduan operasi
 
-## Routing dan login (tahap 2)
+## Menjalankan lokal
 
-Next.js 16 menggunakan konvensi `proxy.ts` (pengganti `middleware.ts`). Proxy mengambil satu label subdomain dari `ROOT_DOMAIN`, lalu me-rewrite halaman tenant ke route internal `/_tenant/[slug]/...`. Route tersebut memakai folder `%5Ftenant` agar segmen URL `_tenant` tetap bisa dipetakan tanpa menjadikan folder sebagai private folder Next.js.
+1. Siapkan PostgreSQL 16 dan buat database `cinema`.
+2. Sebagai administrator PostgreSQL jalankan `prisma/bootstrap-roles.sql`, lalu tetapkan password kuat untuk `cinema_migrator` dan `cinema_runtime`. Runtime harus anggota `cinema_app`, bukan superuser, bukan `BYPASSRLS`, dan bukan pemilik tabel.
+3. Salin `.env.example` ke `.env`; atur `DATABASE_URL` untuk role `cinema_runtime`, `ROOT_DOMAIN`, `AUTH_SECRET`, dan `TICKET_HMAC_SECRET`.
+4. Jalankan `npm install`, `npm run db:generate`, lalu migrasi memakai role migrator. Contoh PowerShell:
 
-Auth.js memakai sesi JWT terenkripsi dengan masa berlaku 8 jam. Cookie tidak menetapkan atribut `Domain`, sehingga browser menyimpannya khusus untuk host tempat login. Login tenant hanya berhasil jika akun punya membership di tenant pada host tersebut; login domain utama hanya menerima akun `SUPER_ADMIN`. Akses role tenant memeriksa membership lagi di database.
+   ```powershell
+   $env:DATABASE_URL = 'postgresql://cinema_migrator:password@localhost:5432/cinema?schema=public'
+   npm run db:migrate
+   $env:DATABASE_URL = 'postgresql://cinema_runtime:password@localhost:5432/cinema?schema=public'
+   npm run db:seed
+   npm run dev
+   ```
 
-Untuk demo lokal setelah database disiapkan dan di-seed, jalankan `npm run dev`, lalu buka `http://localhost:3000`, `http://aurora.localhost:3000`, atau `http://bintang.localhost:3000`. Akun admin tenant dapat membuka `/admin` pada subdomain tenantnya.
+   Di Linux/macOS, set `DATABASE_URL` dengan `export` sebelum tiap perintah.
 
-## Admin tenant (tahap 3)
+Halaman tenant lokal: `http://aurora.localhost:3000` dan `http://bintang.localhost:3000`. Domain utama `http://localhost:3000` melayani landing page dan `/super-admin`.
 
-Super admin dapat membuat tenant beserta akun admin awal, mengganti plan, dan menonaktifkan tenant dari `/super-admin` di domain utama. Admin tenant mengelola film, studio beserta ukuran layout, dan jadwal/harga di `/admin` pada subdomain masing-masing.
+Seed membuat dua tenant contoh. Password semua akun demo `Cinema123!`:
 
-## Jadwal publik dan peta kursi (tahap 4)
+- Super admin: `superadmin@bioskop.test`
+- Aurora: `admin@aurora.test`, `kasir@aurora.test`, `customer@aurora.test`
+- Bintang: `admin@bintang.test`, `kasir@bintang.test`, `customer@bintang.test`
 
-Halaman tenant menampilkan jadwal mendatang dan harga. Detail jadwal memetakan kursi sesuai baris dan kolom studio; kursi `HELD` atau `SOLD` ditandai terisi. Status dipoll setiap lima detik dari route tenant dan responsnya tidak di-cache.
+Ganti kredensial demo sebelum pemakaian selain lokal.
 
-## Booking dan worker (tahap 5)
+## Fitur
 
-Pilih kursi lalu tekan **Pesan kursi**. Aplikasi membuat booking `PENDING` dan baris `HELD` dalam satu transaksi, dengan batas 10 menit. Partial unique index di PostgreSQL menentukan pemenang bila dua proses merebut kursi yang sama. Pembayaran simulasi mengubah booking ke `PAID`, kursi ke `SOLD`, dan membuat satu tiket dalam transaksi yang sama. QR berisi kode tiket dan HMAC dari `TICKET_HMAC_SECRET`.
+- Super admin membuat/nonaktifkan tenant dan menetapkan plan di `/super-admin`.
+- Admin tenant mengelola film, studio, layout, jadwal, staf, dan laporan di `/admin` dan `/laporan`.
+- Halaman publik tenant menampilkan film, jadwal, peta kursi, dan polling status kursi setiap lima detik.
+- Customer memegang kursi selama sepuluh menit, membayar simulasi, lalu melihat e-ticket QR.
+- Kasir dapat menjual kursi langsung dari `/kasir`, membuka tiket loket, serta memvalidasi QR atau kode tiket.
+- Booking kursi ditentukan oleh partial unique index PostgreSQL. Perubahan booking, kursi, dan tiket dilakukan dalam transaksi.
+- Worker Node terpisah mengubah booking lewat waktu menjadi `EXPIRED` dan melepas kursi dengan `FOR UPDATE SKIP LOCKED`.
+- QR memuat kode tiket dan HMAC. Penggunaan tiket atomik melalui `UPDATE ... WHERE used_at IS NULL`.
 
-Jalankan worker terpisah dengan `npm run worker`. Ia berjalan setiap menit, mengunci booking kedaluwarsa memakai `FOR UPDATE SKIP LOCKED`, lalu mengubah booking menjadi `EXPIRED` dan kursi menjadi `RELEASED` secara atomik. Beberapa worker boleh berjalan bersamaan.
+## Verifikasi
 
-Sesudah database di-migrate dan di-seed, bukti isolasi dan transaksi dapat dijalankan dengan `npm run verify:rls`, `npm run verify:booking-race`, `npm run verify:booking-expiry`, dan `npm run verify:ticket-atomic`. Skrip race menjalankan 20 transaksi serentak pada kursi yang sama; tepat satu harus menang. Skrip tiket juga mensimulasikan 20 validasi paralel; hanya satu yang berhasil.
+Jalankan sesudah migrasi dan seed. Verifikasi integrasi memerlukan PostgreSQL dan `DATABASE_URL` role runtime.
+
+```sh
+npm run verify:rls
+npm run verify:booking-race
+npm run verify:booking-expiry
+npm run verify:ticket-atomic
+npm run verify:counter-sale
+```
+
+Race test mengirim 20 hold bersamaan untuk kursi yang sama; tepat satu harus berhasil. Verifikasi RLS mencoba baca dan ubah tenant lain. Verifikasi tiket memulai 20 validasi paralel; satu saja yang berhasil.
 

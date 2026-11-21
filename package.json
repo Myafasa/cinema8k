@@ -14,7 +14,8 @@
     "verify:rls": "tsx scripts/verify-rls.ts",
     "verify:booking-race": "tsx scripts/verify-booking-race.ts",
     "verify:booking-expiry": "tsx scripts/verify-booking-expiry.ts",
-    "verify:ticket-atomic": "tsx scripts/verify-ticket-atomic.ts"
+    "verify:ticket-atomic": "tsx scripts/verify-ticket-atomic.ts",
+    "verify:counter-sale": "tsx scripts/verify-counter-sale.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

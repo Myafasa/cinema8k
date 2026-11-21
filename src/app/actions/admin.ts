@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireTenantUser } from "@/lib/authorization";
 import { withTenant } from "@/lib/db";
+import { hashPassword } from "@/lib/password";
 import { parseJakartaDateTimeLocal } from "@/lib/seat-codes";
 
 const contextSchema = z.object({ slug: z.string().min(1).max(63) });
@@ -30,6 +31,18 @@ const showtimeSchema = contextSchema.extend({
   harga: z.coerce.number().int().positive().max(10_000_000),
 });
 const idSchema = contextSchema.extend({ id: z.string().uuid() });
+const staffSchema = contextSchema.extend({
+  nama: z.string().trim().min(2).max(100),
+  email: z.string().trim().email().max(254),
+  password: z.string().min(10).max(128),
+  role: z.enum(["TENANT_ADMIN", "CASHIER"]),
+});
+const staffUpdateSchema = contextSchema.extend({
+  userId: z.string().uuid(),
+  nama: z.string().trim().min(2).max(100),
+  role: z.enum(["TENANT_ADMIN", "CASHIER"]),
+});
+const staffDeleteSchema = contextSchema.extend({ userId: z.string().uuid() });
 
 function values(formData: FormData) {
   return Object.fromEntries(formData.entries());
@@ -184,4 +197,80 @@ export async function deleteShowtimeAction(formData: FormData) {
     throw error;
   }
   redirectAdmin(slug, "notice=showtime-deleted");
+}
+
+export async function saveStaffAction(formData: FormData) {
+  const parsed = staffSchema.safeParse(values(formData));
+  if (!parsed.success) redirect("/admin?error=invalid");
+  const { slug, nama, email, password, role } = parsed.data;
+  const { tenant } = await requireTenantUser(slug, ["TENANT_ADMIN"]);
+  const passwordHash = hashPassword(password);
+  try {
+    await withTenant(tenant.id, async (tx) => {
+      const existingUser = await tx.user.findUnique({ where: { email: email.toLowerCase() } });
+      if (existingUser) {
+        const membership = await tx.membership.findUnique({
+          where: { tenantId_userId: { tenantId: tenant.id, userId: existingUser.id } },
+        });
+        if (!membership || !["TENANT_ADMIN", "CASHIER"].includes(membership.role)) {
+          throw new AdminConflictError("Email already used");
+        }
+        await tx.user.update({ where: { id: existingUser.id }, data: { nama } });
+        await tx.membership.update({ where: { id: membership.id }, data: { role } });
+        return;
+      }
+
+      const user = await tx.user.create({
+        data: { email: email.toLowerCase(), nama, passwordHash },
+      });
+      await tx.membership.create({ data: { tenantId: tenant.id, userId: user.id, role } });
+    });
+  } catch (error) {
+    if (error instanceof AdminConflictError) redirectAdmin(slug, "error=staff-email-used");
+    if (isConstraintError(error)) redirectAdmin(slug, "error=staff-email-used");
+    throw error;
+  }
+  redirectAdmin(slug, "notice=staff-saved");
+}
+
+export async function updateStaffAction(formData: FormData) {
+  const parsed = staffUpdateSchema.safeParse(values(formData));
+  if (!parsed.success) redirect("/admin?error=invalid");
+  const { slug, userId, nama, role } = parsed.data;
+  const { tenant, userId: actorId } = await requireTenantUser(slug, ["TENANT_ADMIN"]);
+  await withTenant(tenant.id, async (tx) => {
+    const current = await tx.membership.findUnique({ where: { tenantId_userId: { tenantId: tenant.id, userId } } });
+    if (!current || !["TENANT_ADMIN", "CASHIER"].includes(current.role)) return;
+    if (current.role === "TENANT_ADMIN" && role !== "TENANT_ADMIN") {
+      const admins = await tx.membership.count({ where: { tenantId: tenant.id, role: "TENANT_ADMIN" } });
+      if (admins <= 1) throw new AdminConflictError("Cannot remove last admin");
+    }
+    await tx.user.update({ where: { id: userId }, data: { nama } });
+    await tx.membership.update({ where: { id: current.id }, data: { role } });
+  }).catch((error: unknown) => {
+    if (error instanceof AdminConflictError) redirectAdmin(slug, "error=last-admin");
+    throw error;
+  });
+  if (userId === actorId && role !== "TENANT_ADMIN") redirect("/login?notice=role-updated");
+  redirectAdmin(slug, "notice=staff-saved");
+}
+
+export async function removeStaffAction(formData: FormData) {
+  const parsed = staffDeleteSchema.safeParse(values(formData));
+  if (!parsed.success) redirect("/admin?error=invalid");
+  const { slug, userId } = parsed.data;
+  const { tenant } = await requireTenantUser(slug, ["TENANT_ADMIN"]);
+  await withTenant(tenant.id, async (tx) => {
+    const current = await tx.membership.findUnique({ where: { tenantId_userId: { tenantId: tenant.id, userId } } });
+    if (!current || !["TENANT_ADMIN", "CASHIER"].includes(current.role)) return;
+    if (current.role === "TENANT_ADMIN") {
+      const admins = await tx.membership.count({ where: { tenantId: tenant.id, role: "TENANT_ADMIN" } });
+      if (admins <= 1) throw new AdminConflictError("Cannot remove last admin");
+    }
+    await tx.membership.delete({ where: { id: current.id } });
+  }).catch((error: unknown) => {
+    if (error instanceof AdminConflictError) redirectAdmin(slug, "error=last-admin");
+    throw error;
+  });
+  redirectAdmin(slug, "notice=staff-removed");
 }

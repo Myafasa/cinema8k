@@ -6,9 +6,12 @@ import {
   deleteMovieAction,
   deleteShowtimeAction,
   deleteStudioAction,
+  removeStaffAction,
   saveMovieAction,
   saveShowtimeAction,
   saveStudioAction,
+  saveStaffAction,
+  updateStaffAction,
 } from "@/app/actions/admin";
 import { requireTenantUser } from "@/lib/authorization";
 import { withTenant } from "@/lib/db";
@@ -24,7 +27,7 @@ export default async function TenantAdminPage({ params, searchParams }: AdminPar
   const query = await searchParams;
   const { tenant } = await requireTenantUser(slug, [UserRole.TENANT_ADMIN]);
   const data = await withTenant(tenant.id, async (tx) => {
-    const [movies, studios, showtimes] = await Promise.all([
+    const [movies, studios, showtimes, staff] = await Promise.all([
       tx.movie.findMany({ where: { tenantId: tenant.id }, orderBy: { judul: "asc" } }),
       tx.studio.findMany({ where: { tenantId: tenant.id }, orderBy: { nama: "asc" } }),
       tx.showtime.findMany({
@@ -32,8 +35,13 @@ export default async function TenantAdminPage({ params, searchParams }: AdminPar
         include: { movie: true, studio: true },
         orderBy: { mulai: "asc" },
       }),
+      tx.membership.findMany({
+        where: { tenantId: tenant.id, role: { in: ["TENANT_ADMIN", "CASHIER"] } },
+        include: { user: { select: { id: true, email: true, nama: true } } },
+        orderBy: { user: { nama: "asc" } },
+      }),
     ]);
-    return { movies, studios, showtimes };
+    return { movies, studios, showtimes, staff };
   });
 
   const notice = typeof query.notice === "string" ? query.notice : "";
@@ -46,7 +54,7 @@ export default async function TenantAdminPage({ params, searchParams }: AdminPar
         <h1 className="text-3xl font-bold">Kelola katalog dan jadwal</h1>
         <p className="text-zinc-600">Semua data di halaman ini dibaca dalam konteks tenant yang sedang masuk.</p>
         {notice && <p className="rounded-lg bg-green-50 p-3 text-sm text-green-800">Perubahan tersimpan ({notice}).</p>}
-        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">Tidak dapat menyimpan perubahan ({error}). Jadwal dan layout yang sudah punya booking terlindungi dari perubahan yang mengubah tiket.</p>}
+        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">Tidak dapat menyimpan perubahan ({error}). Jadwal/layout yang sudah dipakai booking dan admin terakhir terlindungi.</p>}
       </header>
 
       <section id="movies" className="space-y-4">
@@ -165,6 +173,44 @@ export default async function TenantAdminPage({ params, searchParams }: AdminPar
               </form>
             </Card>
           ))}
+        </div>
+      </section>
+
+      <section id="staff" className="space-y-4">
+        <h2 className="text-2xl font-semibold">Staf tenant</h2>
+        <Card>
+          <h3 className="mb-4 font-semibold">Tambah admin atau kasir</h3>
+          <form action={saveStaffAction} className="grid gap-3 md:grid-cols-2">
+            <input type="hidden" name="slug" value={slug} />
+            <Input name="nama" placeholder="Nama staf" required minLength={2} maxLength={100} />
+            <Input name="email" type="email" placeholder="Email staf" required />
+            <Input name="password" type="password" placeholder="Password awal (min. 10 karakter)" required minLength={10} />
+            <select className="h-10 rounded-lg border px-3" name="role" defaultValue="CASHIER">
+              <option value="CASHIER">Kasir</option><option value="TENANT_ADMIN">Admin tenant</option>
+            </select>
+            <Button className="md:col-span-2 md:w-fit">Simpan staf</Button>
+          </form>
+        </Card>
+        <div className="grid gap-3">
+          {data.staff.map((membership) => (
+            <Card key={membership.id} className="flex flex-wrap items-center justify-between gap-4">
+              <form action={updateStaffAction} className="grid flex-1 gap-3 md:grid-cols-[1fr_1fr_12rem_auto]">
+                <input type="hidden" name="slug" value={slug} />
+                <input type="hidden" name="userId" value={membership.userId} />
+                <Input name="nama" defaultValue={membership.user.nama} required minLength={2} maxLength={100} />
+                <Input value={membership.user.email} disabled aria-label="Email staf" />
+                <select className="h-10 rounded-lg border px-3" name="role" defaultValue={membership.role}>
+                  <option value="CASHIER">Kasir</option><option value="TENANT_ADMIN">Admin tenant</option>
+                </select>
+                <Button variant="outline">Simpan</Button>
+              </form>
+              <form action={removeStaffAction}>
+                <input type="hidden" name="slug" value={slug} /><input type="hidden" name="userId" value={membership.userId} />
+                <Button variant="destructive">Hapus</Button>
+              </form>
+            </Card>
+          ))}
+          {data.staff.length === 0 && <p className="text-sm text-zinc-500">Belum ada staf.</p>}
         </div>
       </section>
     </div>
