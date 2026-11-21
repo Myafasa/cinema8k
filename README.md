@@ -23,7 +23,7 @@ Password seed disimpan sebagai hash scrypt. Ganti akun dan password demo sebelum
 
 - [x] Tahap 1: schema, migrasi awal, role/RLS, partial unique index kursi, seed dua tenant
 - [x] Tahap 2: routing tenant, `withTenant`, autentikasi JWT dan otorisasi
-- [ ] Tahap 3: CRUD admin
+- [x] Tahap 3: onboarding tenant dan CRUD admin
 - [ ] Tahap 4: halaman publik dan peta kursi
 - [ ] Tahap 5: booking, pembayaran simulasi, tiket QR, worker expiry
 - [ ] Tahap 6: kasir dan laporan
@@ -36,3 +36,8 @@ Next.js 16 menggunakan konvensi `proxy.ts` (pengganti `middleware.ts`). Proxy me
 Auth.js memakai sesi JWT terenkripsi dengan masa berlaku 8 jam. Cookie tidak menetapkan atribut `Domain`, sehingga browser menyimpannya khusus untuk host tempat login. Login tenant hanya berhasil jika akun punya membership di tenant pada host tersebut; login domain utama hanya menerima akun `SUPER_ADMIN`. Akses role tenant memeriksa membership lagi di database.
 
 Untuk demo lokal setelah database disiapkan dan di-seed, jalankan `npm run dev`, lalu buka `http://localhost:3000`, `http://aurora.localhost:3000`, atau `http://bintang.localhost:3000`. Akun admin tenant dapat membuka `/admin` pada subdomain tenantnya.
+
+## Admin tenant (tahap 3)
+
+Super admin dapat membuat tenant beserta akun admin awal, mengganti plan, dan menonaktifkan tenant dari `/super-admin` di domain utama. Admin tenant mengelola film, studio beserta ukuran layout, dan jadwal/harga di `/admin` pada subdomain masing-masing.
+

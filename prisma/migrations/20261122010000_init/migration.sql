@@ -19,7 +19,6 @@ CREATE TABLE users (
   password_hash TEXT NOT NULL,
   nama TEXT NOT NULL,
   global_role "GlobalRole" NOT NULL DEFAULT 'USER',
-  global_role "GlobalRole" NOT NULL DEFAULT 'USER',
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT now()
 );
 
@@ -122,41 +121,41 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON memberships, movies, studios, showtimes,
 ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE memberships FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON memberships
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
 ALTER TABLE movies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movies FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON movies
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
 ALTER TABLE studios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE studios FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON studios
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
 ALTER TABLE showtimes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE showtimes FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON showtimes
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
 ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bookings FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON bookings
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
 ALTER TABLE booking_seats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE booking_seats FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON booking_seats
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
 ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tickets FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON tickets
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
