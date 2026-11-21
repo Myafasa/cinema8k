@@ -1,7 +1,7 @@
-import { PrismaClient, GlobalRole, UserRole } from "@prisma/client";
+import { GlobalRole, UserRole } from "@prisma/client";
 import { randomBytes, scryptSync } from "node:crypto";
+import { prisma, withTenant } from "../src/lib/db";
 
-const prisma = new PrismaClient();
 const demoPassword = "Cinema123!";
 
 function passwordHash(password: string): string {
@@ -77,9 +77,8 @@ async function main() {
       ),
     );
 
-    await prisma.$transaction(async (tx) => {
+    await withTenant(tenant.id, async (tx) => {
       // RLS applies to memberships and all cinema data, including the seed.
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
       for (let index = 0; index < people.length; index += 1) {
         await tx.membership.upsert({
           where: { tenantId_userId: { tenantId: tenant.id, userId: users[index].id } },
