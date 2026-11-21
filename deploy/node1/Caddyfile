@@ -1,5 +1,4 @@
-{$ROOT_DOMAIN}, *.{$ROOT_DOMAIN} {
-	tls internal
+http://{$ROOT_DOMAIN}, http://*.{$ROOT_DOMAIN} {
 	reverse_proxy app:3000 {$NODE2_APP_IP}:3000 {
 		lb_policy round_robin
 		health_uri /api/health

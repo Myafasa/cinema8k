@@ -23,13 +23,19 @@ services:
     environment:
       ROOT_DOMAIN: ${ROOT_DOMAIN}
       NODE2_APP_IP: ${NODE2_IP}
-    ports:
-      - "80:80"
-      - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "--no-autoupdate", "run"]
+    env_file:
+      - ./cloudflared.env
+    depends_on:
+      - caddy
     restart: unless-stopped
 
 volumes:

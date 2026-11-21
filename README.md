@@ -64,23 +64,104 @@ npm run verify:counter-sale
 
 Race test mengirim 20 hold bersamaan untuk kursi yang sama; tepat satu harus berhasil. Verifikasi RLS mencoba baca dan ubah tenant lain. Verifikasi tiket memulai 20 validasi paralel; satu saja yang berhasil.
 
-## Deploy tiga node
+## Deploy fresh di Proxmox LXC dengan Cloudflare Tunnel
 
-File ada di `deploy/node1`, `deploy/node2`, dan `deploy/node3`. Salin repo dan `.env` yang sama ke tiap node. Isi IP private sebenarnya untuk `NODE1_IP`, `NODE2_IP`, dan `NODE3_IP`, domain `ROOT_DOMAIN`, URL database, serta password/secret yang kuat. Password di URL database sebaiknya alfanumerik dan tanda hubung atau di-URL-encode.
+Contoh ini mengasumsikan tiga LXC Debian 12 (Bookworm), domain sudah memakai Cloudflare DNS, dan nama repo tersedia sebagai Git remote. Ganti CTID, IP, domain, dan URL repo contoh di bawah dengan milikmu. Gunakan IP private statis/reservasi DHCP pada bridge/VLAN yang sama.
 
-### Node 3: PostgreSQL dan backup
+### 1. Siapkan LXC dari Proxmox
 
-Compose membuat PostgreSQL 16, database `cinema`, dan role `cinema_runtime`, `cinema_migrator`, `cinema_backup`. `pg_hba.conf` hanya mengizinkan koneksi TCP dari IP node 1 dan 2 serta loopback untuk backup lokal. Batasi juga port 5432 di firewall host ke dua IP tersebut. Database hanya bind ke `NODE3_IP`.
+Buat tiga LXC Debian 12 melalui UI Proxmox, misalnya CTID 201/202/203 untuk node 1/2/3. Beri IP yang dapat saling dirutekan dan storage cukup untuk image Docker; node 3 perlu ruang tambahan untuk database dan backup. Sebelum menyalakan container, jalankan pada shell Proxmox:
 
 ```sh
-docker compose -f deploy/node3/compose.yml up -d
+pct set 201 -features nesting=1,keyctl=1
+pct set 202 -features nesting=1,keyctl=1
+pct set 203 -features nesting=1,keyctl=1
+pct start 201
+pct start 202
+pct start 203
 ```
 
-### Migrasi dan seed satu kali
+Masuk ke setiap LXC dengan `pct enter 201` (ganti CTID). Jalankan bagian instalasi berikut di **ketiga** LXC sebagai root.
 
-Migrasi tidak berjalan saat app start. Jalankan migrasi dari node 1 (atau node 2) setelah membangun image, supaya koneksi ke PostgreSQL berasal dari IP yang diizinkan `pg_hba.conf`. Ganti placeholder password dan IP dengan nilai `.env`:
+### 2. Pasang Git, Docker Engine, dan Compose
 
 ```sh
+apt update
+apt install -y ca-certificates curl git
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+cat > /etc/apt/sources.list.d/docker.sources <<'EOF'
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: bookworm
+Components: stable
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+docker run --rm hello-world
+```
+
+Perintah di atas untuk host `amd64`; bila Proxmox memakai arsitektur lain, ganti `Architectures` sesuai `dpkg --print-architecture`. Langkah ini mengikuti metode repository apt Docker untuk Debian 12.[Dokumentasi Docker](https://docs.docker.com/engine/install/debian/)
+
+### 3. Salin kode dan isi environment
+
+Di setiap LXC, clone repo ke path yang sama:
+
+```sh
+git clone https://github.com/<akun>/<repo>.git /opt/cinema
+cd /opt/cinema
+cp .env.example .env
+nano .env
+```
+
+Kalau repo private, siapkan akses Git pada setiap LXC (misalnya deploy key). Kalau kode belum punya Git remote, push dulu dari komputer development atau salin folder repo ke LXC dengan `scp`.
+
+Isi `.env` **identik di ketiga node**: `ROOT_DOMAIN`, `NODE1_IP`, `NODE2_IP`, `NODE3_IP`, `DATABASE_URL`, `AUTH_SECRET`, `TICKET_HMAC_SECRET`, serta password PostgreSQL. Pakai password kuat; password dalam `DATABASE_URL` harus URL-encoded jika berisi karakter khusus. `DATABASE_URL` menunjuk ke `NODE3_IP` dan role `cinema_runtime`.
+
+Di node 1, siapkan file token Tunnel terpisah supaya rahasia Tunnel tidak masuk ke environment app:
+
+```sh
+cd /opt/cinema
+cp deploy/node1/cloudflared.env.example deploy/node1/cloudflared.env
+nano deploy/node1/cloudflared.env
+```
+
+Isi `TUNNEL_TOKEN` dengan token dari Cloudflare Zero Trust. Jangan commit atau membagikan token ini.
+
+### 4. Buat Cloudflare Tunnel
+
+Di Cloudflare Dashboard, buka **Networking → Tunnels**, buat remotely-managed tunnel, lalu tambahkan published application routes berikut:
+
+| Hostname | Service URL |
+| --- | --- |
+| `bioskop.example.com` | `http://caddy:80` |
+| `*.bioskop.example.com` | `http://caddy:80` |
+
+Ganti `bioskop.example.com` dengan domainmu. Salin token Tunnel ke `deploy/node1/cloudflared.env`. Route wildcard dipakai agar tenant baru otomatis dapat diakses lewat subdomain. Jika Cloudflare menampilkan bahwa route wildcard tidak membuat DNS record, buat record DNS wildcard yang menunjuk ke target Tunnel `…cfargotunnel.com` sesuai panduan Cloudflare.
+
+Cloudflare menangani HTTPS publik; di jaringan Docker, cloudflared meneruskan request HTTP ke Caddy port 80. Caddy lalu load-balance ke app Node 1 dan Node 2. Port 80/443 tidak dipublikasikan dari LXC ke internet. Izinkan koneksi **keluar** dari Node 1 ke Cloudflare di TCP/UDP port 7844 serta DNS; Cloudflare Tunnel memakai koneksi outbound dan tidak memerlukan inbound port forwarding.[Cloudflare Tunnel routing](https://developers.cloudflare.com/tunnel/concepts/routing/), [firewall ports](https://developers.cloudflare.com/tunnel/configuration/)
+
+### 5. Nyalakan database di Node 3
+
+```sh
+cd /opt/cinema
+docker compose -f deploy/node3/compose.yml up -d
+docker compose -f deploy/node3/compose.yml ps
+docker compose -f deploy/node3/compose.yml logs -f postgres
+```
+
+Saat pertama kali berjalan, Compose membuat database dan role. `pg_hba.conf` mengizinkan koneksi dari Node 1/2 saja (serta loopback untuk backup). Batasi juga firewall host Proxmox/LXC: port 5432 hanya dari dua IP app tersebut. Backup harian disimpan di `deploy/node3/backups` dengan retensi 14 hari. Simpan salinan backup di luar Node 3 juga.
+
+### 6. Build image dan migrasi dari Node 1
+
+Di Node 1, build image satu kali. Jalankan migrasi dari Node 1 agar asal koneksi diizinkan `pg_hba.conf`:
+
+```sh
+cd /opt/cinema
 docker compose -f deploy/node1/compose.yml build app
 docker compose -f deploy/node1/compose.yml run --rm --no-deps \
   -e DATABASE_URL='postgresql://cinema_migrator:<password>@<NODE3_IP>:5432/cinema?schema=public' \
@@ -88,35 +169,43 @@ docker compose -f deploy/node1/compose.yml run --rm --no-deps \
 docker compose -f deploy/node1/compose.yml run --rm --no-deps app npm run db:seed
 ```
 
-URL migrator hanya untuk migrasi. Seed memakai URL runtime dari `.env`; jalankan sekali. `cinema_backup` memiliki `BYPASSRLS` hanya untuk membuat dump penuh; kredensial ini tidak diberikan ke app.
+Ganti `<password>` dan `<NODE3_IP>` sesuai `.env`. Migrasi dijalankan satu kali memakai role migrator; seed juga satu kali memakai role runtime.
 
-### Node 1: Caddy dan replika aplikasi pertama
-
-```sh
-docker compose -f deploy/node1/compose.yml up -d --build
-```
-
-Caddy menerima domain utama dan wildcard subdomain, lalu round-robin ke app lokal dan `NODE2_IP:3000`. Health check `/api/health` mengeluarkan replika yang tidak sehat. TLS `internal` memakai CA internal Caddy; distribusikan root CA Caddy ke perangkat lab agar browser mempercayainya.
-
-### Node 2: replika kedua dan worker
+Untuk memakai **image yang sama persis** di kedua node app, ekspor image dari Node 1 lalu pindahkan ke Node 2:
 
 ```sh
-docker compose -f deploy/node2/compose.yml up -d --build
+docker save cinema-app:local | gzip > /tmp/cinema-app.tar.gz
+scp /tmp/cinema-app.tar.gz root@<NODE2_IP>:/tmp/cinema-app.tar.gz
 ```
 
-Port 3000 hanya perlu dapat diakses dari node 1; batasi dengan firewall node 2. App dan worker memakai Dockerfile serta image aplikasi yang sama. Kedua replika memakai `AUTH_SECRET` yang sama agar sesi JWT tetap berlaku saat request berpindah replika. Compose node 2 menjalankan satu worker.
+### 7. Jalankan replika dan Tunnel
 
-Untuk memastikan image identik byte demi byte, build image sekali pada mesin dengan arsitektur yang sama lalu distribusikan tag tersebut ke node 1 dan 2. Compose menyediakan build lokal agar lab mandiri dapat menjalankan perintah di atas.
+Di Node 2:
 
-Backup custom-format dibuat harian di `deploy/node3/backups`; file lebih lama dari 14 hari dihapus. Simpan salinan backup di luar node 3 untuk pemulihan bencana.
+```sh
+cd /opt/cinema
+docker load < /tmp/cinema-app.tar.gz
+docker compose -f deploy/node2/compose.yml up -d --no-build
+docker compose -f deploy/node2/compose.yml ps
+```
 
-### HTTPS wildcard publik
+Di Node 1:
 
-Sertifikat wildcard publik memerlukan DNS challenge. Image Caddy standar pada compose memakai CA internal; untuk publik, buat image Caddy dengan plugin DNS provider yang sesuai penyedia DNS (misalnya `xcaddy`), berikan token API DNS lewat secret environment, lalu ganti `tls internal` dengan konfigurasi DNS challenge provider itu. Wildcard memerlukan DNS challenge dan modul provider DNS; jangan menaruh token API di Caddyfile.
+```sh
+cd /opt/cinema
+docker compose -f deploy/node1/compose.yml up -d --no-build
+docker compose -f deploy/node1/compose.yml ps
+docker compose -f deploy/node1/compose.yml logs -f caddy cloudflared
+```
 
-### Proxmox dan LXC
+Buka `https://aurora.bioskop.example.com` dan `https://bintang.bioskop.example.com`. Cek tunnel berstatus **Healthy** di dashboard. Caddy punya health check app; untuk demo failover, hentikan app Node 2 sementara (`docker compose -f deploy/node2/compose.yml stop app`), muat ulang situs, lalu jalankan kembali dengan `start app`.
 
-Aktifkan fitur LXC `nesting` dan `keyctl` untuk container yang menjalankan Docker. Gunakan alamat IP private statis atau reservasi DHCP. Pastikan node 1 dapat mencapai node 2 port 3000 dan node 3 port 5432; node lain tidak perlu mengakses port database.
+### Batas dan firewall
+
+- Tidak ada port publik yang perlu diarahkan ke LXC. Cloudflare Tunnel membuat koneksi keluar dari Node 1; izinkan TCP/UDP 7844 outbound dan DNS.
+- Batasi Node 2 port 3000 agar hanya dapat diakses Node 1. Batasi Node 3 port 5432 agar hanya dapat diakses Node 1 dan 2.
+- Bila akses internet dari klien harus tetap tersedia saat Node 1 mati, Caddy dan cloudflared perlu dirancang ulang sebagai replika juga; konfigurasi MVP ini hanya failover untuk app Node 2.
+- `nesting` dan `keyctl` wajib diaktifkan untuk Docker di LXC.
 
 ## Catatan keamanan dan operasi
 
