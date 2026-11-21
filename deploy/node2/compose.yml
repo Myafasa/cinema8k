@@ -1,0 +1,30 @@
+services:
+  app:
+    image: ${APP_IMAGE:-cinema-app:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${NODE2_IP}:3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 4s
+      retries: 3
+
+  worker:
+    image: ${APP_IMAGE:-cinema-app:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      NODE_ENV: production
+    command: ["node_modules/.bin/tsx", "worker/index.ts"]
+    restart: unless-stopped

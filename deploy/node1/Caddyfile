@@ -1,0 +1,10 @@
+{$ROOT_DOMAIN}, *.{$ROOT_DOMAIN} {
+	tls internal
+	reverse_proxy app:3000 {$NODE2_APP_IP}:3000 {
+		lb_policy round_robin
+		health_uri /api/health
+		health_interval 10s
+		health_timeout 3s
+		lb_try_duration 5s
+	}
+}

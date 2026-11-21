@@ -1,0 +1,9 @@
+# Local administration and the backup sidecar.
+local all all peer
+host all all 127.0.0.1/32 scram-sha-256
+host all all ::1/128 scram-sha-256
+# App nodes only. Keep the host firewall restricted to the same two sources.
+host all all @@NODE1_IP@@/32 scram-sha-256
+host all all @@NODE2_IP@@/32 scram-sha-256
+host all all 0.0.0.0/0 reject
+host all all ::/0 reject

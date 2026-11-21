@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cinema
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      MIGRATOR_PASSWORD: ${MIGRATOR_PASSWORD}
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD}
+    entrypoint: ["/bin/bash", "-ec"]
+    command: |
+      sed -e "s/@@NODE1_IP@@/$${NODE1_IP}/g" -e "s/@@NODE2_IP@@/$${NODE2_IP}/g" /etc/postgresql/pg_hba.conf.template > /tmp/pg_hba.conf
+      exec /usr/local/bin/docker-entrypoint.sh postgres -c hba_file=/tmp/pg_hba.conf -c listen_addresses='*'
+    env_file:
+      - ../../.env
+    ports:
+      - "${NODE3_IP}:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./pg_hba.conf.template:/etc/postgresql/pg_hba.conf.template:ro
+      - ./init-roles.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cinema"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backup:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    network_mode: "service:postgres"
+    environment:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: cinema
+      PGUSER: cinema_backup
+      PGPASSWORD: ${BACKUP_DB_PASSWORD}
+      BACKUP_RETENTION_DAYS: 14
+    volumes:
+      - ./backups:/backups
+      - ./backup-loop.sh:/usr/local/bin/backup-loop.sh:ro
+    command: ["sh", "/usr/local/bin/backup-loop.sh"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
