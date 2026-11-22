@@ -1,0 +1,8 @@
+# Copy to config.yml, then replace both hostnames with ROOT_DOMAIN.
+credentials-file: /etc/cloudflared/credentials.json
+ingress:
+  - hostname: bioskop.example.com
+    service: http://caddy:80
+  - hostname: "*.bioskop.example.com"
+    service: http://caddy:80
+  - service: http_status:404

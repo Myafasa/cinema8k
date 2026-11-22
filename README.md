@@ -122,26 +122,58 @@ Kalau repo private, siapkan akses Git pada setiap LXC (misalnya deploy key). Kal
 
 Isi `.env` **identik di ketiga node**: `ROOT_DOMAIN`, `NODE1_IP`, `NODE2_IP`, `NODE3_IP`, `DATABASE_URL`, `AUTH_SECRET`, `TICKET_HMAC_SECRET`, serta password PostgreSQL. Pakai password kuat; password dalam `DATABASE_URL` harus URL-encoded jika berisi karakter khusus. `DATABASE_URL` menunjuk ke `NODE3_IP` dan role `cinema_runtime`.
 
-Di node 1, siapkan file token Tunnel terpisah supaya rahasia Tunnel tidak masuk ke environment app:
+Di Node 1, siapkan file UUID tunnel, config, dan credentials. UUID bukan rahasia, tetapi credentials JSON harus dirahasiakan:
 
 ```sh
 cd /opt/cinema
 cp deploy/node1/cloudflared.env.example deploy/node1/cloudflared.env
 nano deploy/node1/cloudflared.env
+mkdir -p deploy/node1/cloudflared
+cp deploy/node1/cloudflared/config.yml.example deploy/node1/cloudflared/config.yml
+nano deploy/node1/cloudflared/config.yml
 ```
 
-Isi `TUNNEL_TOKEN` dengan token dari Cloudflare Zero Trust. Jangan commit atau membagikan token ini.
+Isi `TUNNEL_ID` dan ganti hostname pada `config.yml` dengan domainmu. Jangan commit config lokal atau credentials JSON.
 
 ### 4. Buat Cloudflare Tunnel
 
-Di Cloudflare Dashboard, buka **Networking → Tunnels**, buat remotely-managed tunnel, lalu tambahkan published application routes berikut:
+Pasang CLI di Node 1. Domain perlu sudah ditambahkan ke Cloudflare dan nameserver-nya mengarah ke Cloudflare:
 
-| Hostname | Service URL |
-| --- | --- |
-| `bioskop.example.com` | `http://caddy:80` |
-| `*.bioskop.example.com` | `http://caddy:80` |
+```sh
+mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+  -o /usr/share/keyrings/cloudflare-main.gpg
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" \
+  > /etc/apt/sources.list.d/cloudflared.list
+apt update
+apt install -y cloudflared
+cloudflared version
+```
 
-Ganti `bioskop.example.com` dengan domainmu. Salin token Tunnel ke `deploy/node1/cloudflared.env`. Route wildcard dipakai agar tenant baru otomatis dapat diakses lewat subdomain. Jika Cloudflare menampilkan bahwa route wildcard tidak membuat DNS record, buat record DNS wildcard yang menunjuk ke target Tunnel `…cfargotunnel.com` sesuai panduan Cloudflare.
+Login akan mencetak URL untuk dibuka di browser. Setelah menyetujui zone domain, kembali ke Node 1 dan buat tunnel melalui CLI:
+
+```sh
+cloudflared tunnel login
+cloudflared tunnel create cinema-booking
+cloudflared tunnel list
+```
+
+Catat UUID hasilnya. Buat DNS CNAME route untuk domain utama dan wildcard (ganti UUID/domain):
+
+```sh
+cloudflared tunnel route dns <UUID> bioskop.example.com
+cloudflared tunnel route dns <UUID> '*.bioskop.example.com'
+```
+
+Salin credentials JSON tunnel ke folder mount Node 1. Container `cloudflared` berjalan sebagai UID 65532:
+
+```sh
+cp /root/.cloudflared/<UUID>.json deploy/node1/cloudflared/credentials.json
+chown 65532:65532 deploy/node1/cloudflared/credentials.json
+chmod 0400 deploy/node1/cloudflared/credentials.json
+```
+
+Pastikan `config.yml` memiliki hostname yang sama dengan DNS routes dan credentials path `/etc/cloudflared/credentials.json`. Set `TUNNEL_ID=<UUID>` dalam `deploy/node1/cloudflared.env`. CLI membuat tunnel dan record DNS, tidak perlu membuat routes lewat dashboard.[Panduan tunnel CLI](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/)
 
 Cloudflare menangani HTTPS publik; di jaringan Docker, cloudflared meneruskan request HTTP ke Caddy port 80. Caddy lalu load-balance ke app Node 1 dan Node 2. Port 80/443 tidak dipublikasikan dari LXC ke internet. Izinkan koneksi **keluar** dari Node 1 ke Cloudflare di TCP/UDP port 7844 serta DNS; Cloudflare Tunnel memakai koneksi outbound dan tidak memerlukan inbound port forwarding.[Cloudflare Tunnel routing](https://developers.cloudflare.com/tunnel/concepts/routing/), [firewall ports](https://developers.cloudflare.com/tunnel/configuration/)
 
@@ -162,11 +194,14 @@ Di Node 1, build image satu kali. Jalankan migrasi dari Node 1 agar asal koneksi
 
 ```sh
 cd /opt/cinema
-docker compose -f deploy/node1/compose.yml build app
-docker compose -f deploy/node1/compose.yml run --rm --no-deps \
+docker compose --env-file .env --env-file deploy/node1/cloudflared.env \
+  -f deploy/node1/compose.yml build app
+docker compose --env-file .env --env-file deploy/node1/cloudflared.env \
+  -f deploy/node1/compose.yml run --rm --no-deps \
   -e DATABASE_URL='postgresql://cinema_migrator:<password>@<NODE3_IP>:5432/cinema?schema=public' \
   app npm run db:migrate
-docker compose -f deploy/node1/compose.yml run --rm --no-deps app npm run db:seed
+docker compose --env-file .env --env-file deploy/node1/cloudflared.env \
+  -f deploy/node1/compose.yml run --rm --no-deps app npm run db:seed
 ```
 
 Ganti `<password>` dan `<NODE3_IP>` sesuai `.env`. Migrasi dijalankan satu kali memakai role migrator; seed juga satu kali memakai role runtime.
@@ -193,9 +228,12 @@ Di Node 1:
 
 ```sh
 cd /opt/cinema
-docker compose -f deploy/node1/compose.yml up -d --no-build
-docker compose -f deploy/node1/compose.yml ps
-docker compose -f deploy/node1/compose.yml logs -f caddy cloudflared
+docker compose --env-file .env --env-file deploy/node1/cloudflared.env \
+  -f deploy/node1/compose.yml up -d --no-build
+docker compose --env-file .env --env-file deploy/node1/cloudflared.env \
+  -f deploy/node1/compose.yml ps
+docker compose --env-file .env --env-file deploy/node1/cloudflared.env \
+  -f deploy/node1/compose.yml logs -f caddy cloudflared
 ```
 
 Buka `https://aurora.bioskop.example.com` dan `https://bintang.bioskop.example.com`. Cek tunnel berstatus **Healthy** di dashboard. Caddy punya health check app; untuk demo failover, hentikan app Node 2 sementara (`docker compose -f deploy/node2/compose.yml stop app`), muat ulang situs, lalu jalankan kembali dengan `start app`.

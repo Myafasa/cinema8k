@@ -31,11 +31,13 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    command: ["tunnel", "--no-autoupdate", "run"]
-    env_file:
-      - ./cloudflared.env
+    user: "65532:65532"
+    command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "run", "${TUNNEL_ID}"]
     depends_on:
       - caddy
+    volumes:
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ./cloudflared/credentials.json:/etc/cloudflared/credentials.json:ro
     restart: unless-stopped
 
 volumes:
